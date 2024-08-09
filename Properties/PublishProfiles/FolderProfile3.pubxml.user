@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!--
+https://go.microsoft.com/fwlink/?LinkID=208121.
+-->
+<Project>
+  <PropertyGroup>
+    <_PublishTargetUrl>D:\Connector Publish\Api</_PublishTargetUrl>
+    <History>True|2024-08-05T05:22:08.7073807Z;True|2024-08-05T00:03:36.4022011+05:30;True|2024-08-04T23:55:11.0288841+05:30;True|2024-08-04T23:55:02.1794958+05:30;True|2024-08-04T13:48:04.5964428+05:30;True|2024-07-20T11:40:27.0779976+05:30;True|2024-07-18T18:58:22.3664792+05:30;True|2024-07-10T16:36:00.3786756+05:30;True|2024-07-09T17:09:35.8815033+05:30;True|2024-07-06T18:28:45.9844698+05:30;</History>
+    <LastFailureDetails />
+  </PropertyGroup>
+</Project>
