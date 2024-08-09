@@ -1,0 +1,6 @@
+Step 1 : D:\Mohan\uploads\PIPE_0001.xlsx
+Step 2 : Provider=Microsoft.ACE.OLEDB.12.0;Data Source=D:\Mohan\uploads\PIPE_0001.xlsx;Extended Properties='Excel 12.0;HDR=YES;'
+Step 3 : Reconbal_table$
+Step 3 : Samplepg$
+Step 3 : Sheet3$
+Step 4 : 
