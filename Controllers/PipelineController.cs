@@ -2631,7 +2631,7 @@ namespace MysqlEfCoreDemo.Controllers
 
         #region Pipeline Finalization
         [HttpPost]
-        public async Task<IActionResult> Addpplfinalization([FromBody] AddpplFinalizationRequest addpplFinalization)
+        public async Task<IActionResult> Addpplfinalization_old([FromBody] AddpplFinalizationRequest addpplFinalization)
         {
             try
             {
@@ -2741,9 +2741,167 @@ namespace MysqlEfCoreDemo.Controllers
                                 scheduled_date = DateTime.Now,
                                 pipeline_code = pplfin.pipeline_code,
                                 file_name = src_filename,
-                                scheduler_start_date = ReplaceTimeInCurrentDate(pplfin.cron_expression),//DateTime.Now,
+                                scheduler_start_date = Convert.ToDateTime(GetNextFireTime(pplfin.cron_expression)),//ReplaceTimeInCurrentDate(pplfin.cron_expression),//DateTime.Now,
                                 scheduler_status = "Scheduled",
                                 scheduler_initiated_by = pplfin.created_by,
+                                delete_flag = "N"
+                            };
+
+                            await dbContext.con_trn_tscheduler.AddAsync(sch);
+                            await dbContext.SaveChangesAsync();
+                        }
+                    }
+
+                }
+
+                return Ok("All details saved successfully..!");
+            }
+            catch (Exception ex)
+            {
+                return BadRequest($"Error: {ex.Message}");
+            }
+        }
+
+        // 20-08-2024
+        [HttpPost]
+        public async Task<IActionResult> Addpplfinalization([FromBody] AddpplFinalizationRequest addpplFinalization)
+        {
+            try
+            {
+                int count = dbContext.con_trn_tpplfinalization.Count();
+                int maxId;
+                if (count > 0)
+                {
+                    maxId = dbContext.con_trn_tpplfinalization.Max(entity => entity.finalization_gid);
+                    maxId = maxId + 1;
+                }
+                else
+                {
+                    maxId = 1;
+                }
+                if (addpplFinalization.extract_condition.ToString().Trim() != "")
+                {
+                    // Regular expression pattern to match key-value pairs
+                    string pattern = @"\[(.*?)\] > \[(.*?)\]";
+
+                    // Match key-value pairs using regular expression
+                    MatchCollection matches = Regex.Matches(addpplFinalization.extract_condition, pattern);
+
+                    // Create a list to hold JSON objects
+                    List<JObject> jsonDataList = new List<JObject>();
+
+                    foreach (Match match in matches)
+                    {
+                        // Extract key and value from the match groups
+                        string key = match.Groups[1].Value;
+                        string value = match.Groups[2].Value;
+
+                        // Create a JObject for each pair
+                        JObject jsonObject = new JObject();
+
+                        // Add key-value pairs to the JObject
+                        jsonObject.Add(key, value);
+
+                        // Add the JObject to the list
+                        jsonDataList.Add(jsonObject);
+                    }
+
+                    // Convert the list of JSON objects to a JSON array
+                    JArray jsonArray = new JArray(jsonDataList);
+
+                    // Convert the JSON array to a formatted string
+                    addpplFinalization.last_incremental_val = jsonArray.ToString();
+                }
+
+
+                var pplfin = new PipelineFinalization()
+                {
+                    finalization_gid = 0,//Guid.NewGuid(),
+                    pipeline_code = addpplFinalization.pipeline_code,
+                    run_type = addpplFinalization.run_type,
+                    cron_expression = addpplFinalization.cron_expression,
+                    extract_mode = addpplFinalization.extract_mode,
+                    upload_mode = addpplFinalization.upload_mode,
+                    key_field = addpplFinalization.key_field,
+                    extract_condition = addpplFinalization.extract_condition,
+                    last_incremental_val = addpplFinalization.last_incremental_val,
+                    pull_days = addpplFinalization.pull_days,
+                    reject_duplicate_flag = addpplFinalization.reject_duplicate_flag,
+                    error_mode = addpplFinalization.error_mode,
+                    created_date = addpplFinalization.created_date,
+                    created_by = addpplFinalization.created_by,
+                    updated_date = addpplFinalization.updated_date,
+                    updated_by = addpplFinalization.updated_by,
+                    delete_flag = "N"
+                };
+                await dbContext.con_trn_tpplfinalization.AddAsync(pplfin);
+                await dbContext.SaveChangesAsync();
+
+                var lastInsertedId = pplfin.finalization_gid;
+
+                //Update pipeine status
+                var existingPipeline = await dbContext.con_mst_tpipeline.SingleOrDefaultAsync(p => p.pipeline_code == pplfin.pipeline_code);
+
+                if (existingPipeline != null)
+                {
+                    // Update the properties of the existing entity
+                    existingPipeline.pipeline_status = addpplFinalization.pipeline_status;
+
+                    // Save the changes to the database
+                    await dbContext.SaveChangesAsync();
+
+                    //Insert on Scheduler table once pipeline activated
+
+                    if (addpplFinalization.run_type == "Scheduled Run")
+                    {
+                        var v_src_filename = "";
+
+                        var pipelineWithConnector = await dbContext.con_mst_tpipeline
+                        .Where(p => p.pipeline_code == addpplFinalization.pipeline_code && p.delete_flag == "N")
+                        .Join(
+                            dbContext.con_mst_tconnection,
+                             pipeline => pipeline.connection_code,
+                             connector => connector.connection_code,
+                            (pipeline, connector) => new { Pipeline = pipeline, Connector = connector }
+                        )
+                        .FirstOrDefaultAsync();
+
+                        v_src_filename = pipelineWithConnector.Pipeline.source_file_name;
+
+                        if (pipelineWithConnector.Connector.source_db_type == "Excel")
+                        {
+                            v_filepath = v_filepath + v_src_filename;
+                        }
+                        else
+                        {
+                            v_filepath = "";
+                        }
+
+                        //Insert on Scheduler table once pipeline activated
+                        var schldpplcode = dbContext.con_trn_tscheduler
+                             .Where(a => a.pipeline_code == addpplFinalization.pipeline_code
+                             //&& a.scheduler_status == "Scheduled" 
+                             && a.scheduler_status == "Scheduled" || a.scheduler_status == "Locked"
+                             && a.delete_flag == "N")
+                             .Select(a => new
+                             {
+                                 scheduler_gid = a.scheduler_gid,
+                                 pipeline_code = a.pipeline_code,
+                                 Rawfilepath = a.file_path
+                             }).OrderByDescending(a => a.scheduler_gid)
+                             .FirstOrDefault();
+                        if (schldpplcode == null)
+                        {
+                            var sch = new Scheduler()
+                            {
+                                scheduler_gid = 0,
+                                scheduled_date = DateTime.Now,
+                                pipeline_code = addpplFinalization.pipeline_code,
+                                file_path = v_filepath,
+                                file_name = v_src_filename,
+                                scheduler_start_date = Convert.ToDateTime(GetNextFireTime(addpplFinalization.cron_expression)),//ReplaceTimeInCurrentDate(pplfinz.cron_expression),//DateTime.Now,
+                                scheduler_status = "Scheduled",
+                                scheduler_initiated_by = addpplFinalization.created_by,
                                 delete_flag = "N"
                             };
 
@@ -2888,7 +3046,8 @@ namespace MysqlEfCoreDemo.Controllers
                                     pipeline_code = pplfinz.pipeline_code,
                                     file_path = v_filepath,
                                     file_name = v_src_filename,
-                                    scheduler_start_date = ReplaceTimeInCurrentDate(pplfinz.cron_expression),//DateTime.Now,
+                                    scheduler_start_date = Convert.ToDateTime(GetNextFireTime(pplfinz.cron_expression)),
+                                    // ReplaceTimeInCurrentDate(pplfinz.cron_expression),//DateTime.Now,
                                     scheduler_status = "Scheduled",
                                     scheduler_initiated_by = pplfinz.created_by,
                                     delete_flag = "N"
@@ -2912,7 +3071,7 @@ namespace MysqlEfCoreDemo.Controllers
                                     pipeline_code = pplfinz.pipeline_code,
                                     file_path = v_filepath,
                                     file_name = v_src_filename,
-                                    scheduler_start_date = ReplaceTimeInCurrentDate(pplfinz.cron_expression),//DateTime.Now,
+                                    scheduler_start_date = Convert.ToDateTime(GetNextFireTime(pplfinz.cron_expression)),//ReplaceTimeInCurrentDate(pplfinz.cron_expression),//DateTime.Now,
                                     scheduler_status = "Scheduled",
                                     scheduler_initiated_by = pplfinz.created_by,
                                     delete_flag = "N"
@@ -2992,7 +3151,7 @@ namespace MysqlEfCoreDemo.Controllers
 
                 if (schldpplcode == null)
                 {
-                    DateTime v_scheduler_start_date = ReplaceTimeInCurrentDate(finaliz.cron_expression);
+                    DateTime v_scheduler_start_date = Convert.ToDateTime(GetNextFireTime(finaliz.cron_expression));//ReplaceTimeInCurrentDate(finaliz.cron_expression);
                     var sch = new Scheduler()
                     {
                         scheduler_gid = 0,
@@ -3040,6 +3199,26 @@ namespace MysqlEfCoreDemo.Controllers
 
             return givenDateTime;
 
+        }
+
+        // 20-08-2024
+        private static DateTime? GetNextFireTime(string inputTime)
+        {
+            //var cron = new Quartz.CronExpression("10 * * * * ?");
+            //var cron = new Quartz.CronExpression("* 5 18 ? * 1");
+            var cron = new Quartz.CronExpression(inputTime + " ?");
+            var date = DateTime.Now;
+            DateTimeOffset? nextFire = cron.GetNextValidTimeAfter(date);
+
+            // Convert the result to local time if nextFire has a value
+            DateTime? localNextFire = nextFire?.LocalDateTime;
+
+            // Log the cron expression, current date, and next fire time
+            Console.WriteLine($"Cron Expression: {cron}");
+            Console.WriteLine($"Current Date: {date}");
+            Console.WriteLine($"Next Fire: {nextFire}");
+
+            return localNextFire;
         }
 
         [HttpGet]
